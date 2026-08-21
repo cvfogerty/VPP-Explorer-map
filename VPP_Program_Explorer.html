@@ -70,8 +70,18 @@
   #filters .n { color:var(--ink-soft); font-size:11.5px; }
 
   /* bottom-left legend */
-  #legend { bottom:22px; left:10px; padding:8px 12px; }
+  #legend { bottom:22px; left:10px; padding:8px 12px; transition:padding .1s; }
   #legend .item { display:flex; align-items:center; gap:7px; margin:3px 0; }
+  #legend .legend-header { display:flex; align-items:center; justify-content:space-between;
+                            gap:10px; font-weight:700; font-size:11px; letter-spacing:.04em;
+                            text-transform:uppercase; color:var(--ink-soft); }
+  #legend.collapsed { padding:6px 10px; }
+  #legend.collapsed .legend-header { margin:0; }
+  #legend:not(.collapsed) .legend-header { margin-bottom:6px; }
+  #legend.collapsed #legend-body { display:none; }
+  .legend-toggle { border:none; background:none; cursor:pointer; font-size:15px; line-height:1;
+                   color:var(--ink-soft); padding:0 2px; font-family:inherit; }
+  .legend-toggle:hover { color:var(--purple); }
   .chip { width:12px; height:12px; border-radius:3px; flex:none; border:1px solid rgba(11,11,11,.18); }
   .chip.grey  { background: var(--grey); }
   .grad-bar { width:64px; height:12px; border-radius:3px; flex:none;
@@ -113,10 +123,17 @@
 </div>
 
 <div id="legend" class="card">
-  <div class="item"><span class="chip grey"></span>No matching VPP programs</div>
-  <div class="item"><span class="grad-bar"></span>Fewer &rarr; more programs</div>
-  <div class="item"><span class="line-sw thick"></span>Has statewide program</div>
-  <div class="item"><span class="line-sw thin"></span>State boundary</div>
+  <div class="legend-header">
+    <span>Legend</span>
+    <button type="button" class="legend-toggle" id="legend-toggle-btn"
+            onclick="toggleLegend()" aria-label="Minimize legend">−</button>
+  </div>
+  <div id="legend-body">
+    <div class="item"><span class="chip grey"></span>No matching VPP programs</div>
+    <div class="item"><span class="grad-bar"></span>Fewer &rarr; more programs</div>
+    <div class="item"><span class="line-sw thick"></span>Has statewide program</div>
+    <div class="item"><span class="line-sw thin"></span>State boundary</div>
+  </div>
 </div>
 
 <script>
@@ -144,39 +161,69 @@ function adminOf(p)   { return [norm(p.admin_type)]; }
 function pathwayOf(p) { return [norm(p.pathway)]; }
 
 // ---------- filters ----------
-const FILTER_GROUPS = [
+// Two independent pools: utility-owned programs vs statewide programs. Each
+// gets its own filter-group value lists (so e.g. a vendor only used by a
+// statewide program never shows up as a checkbox in Utility view) and its
+// own checked-state, so switching views doesn't lose your selections.
+const GROUP_DEFS = [
   { key: "vendor",  label: "Contracted Vendor",             valsOf: vendorsOf },
   { key: "admin",   label: "Administrative Model Type",     valsOf: adminOf },
   { key: "pathway", label: "Capacity Contribution Pathway", valsOf: pathwayOf },
 ];
-for (const g of FILTER_GROUPS) {
-  const s = new Set();
-  for (const p of PROGRAMS) for (const v of g.valsOf(p)) s.add(v);
-  g.values = [...s].sort((a, b) => (a === NS) - (b === NS) || a.localeCompare(b));
+function buildFilterGroups(poolPredicate) {
+  return GROUP_DEFS.map(def => {
+    const s = new Set();
+    for (const p of PROGRAMS) if (poolPredicate(p)) for (const v of def.valsOf(p)) s.add(v);
+    const values = [...s].sort((a, b) => (a === NS) - (b === NS) || a.localeCompare(b));
+    return { ...def, values };
+  });
 }
-const checked = {};   // key -> Set of checked values (default: everything)
-const fg = document.getElementById("f-groups");
-for (const g of FILTER_GROUPS) {
-  checked[g.key] = new Set(g.values);
-  fg.insertAdjacentHTML("beforeend", `<div class="grp">${esc(g.label)}</div>`);
-  const vals = document.createElement("div");
-  for (const v of g.values) {
-    const lab = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.checked = true;
-    cb.addEventListener("change", () => {
-      cb.checked ? checked[g.key].add(v) : checked[g.key].delete(v);
-      applyFilters();
-    });
-    lab.appendChild(cb);
-    lab.insertAdjacentHTML("beforeend", `<span>${esc(v)}</span>`);
-    vals.appendChild(lab);
+const isUtilProgram = p => p.utility !== "Statewide";
+const isStateProgram = p => p.utility === "Statewide";
+const FILTER_GROUPS_UTIL = buildFilterGroups(isUtilProgram);
+const FILTER_GROUPS_STATE = buildFilterGroups(isStateProgram);
+
+function freshChecked(groups) {
+  const c = {};
+  for (const g of groups) c[g.key] = new Set(g.values);
+  return c;
+}
+const checkedUtil = freshChecked(FILTER_GROUPS_UTIL);
+const checkedState = freshChecked(FILTER_GROUPS_STATE);
+
+function groupsAndCheckedFor(m) {
+  return m === "state" ? [FILTER_GROUPS_STATE, checkedState] : [FILTER_GROUPS_UTIL, checkedUtil];
+}
+function renderFilterGroups(groups, checkedObj) {
+  const fg = document.getElementById("f-groups");
+  fg.innerHTML = "";
+  for (const g of groups) {
+    fg.insertAdjacentHTML("beforeend", `<div class="grp">${esc(g.label)}</div>`);
+    const vals = document.createElement("div");
+    for (const v of g.values) {
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = checkedObj[g.key].has(v);
+      cb.addEventListener("change", () => {
+        cb.checked ? checkedObj[g.key].add(v) : checkedObj[g.key].delete(v);
+        applyFilters();
+      });
+      lab.appendChild(cb);
+      lab.insertAdjacentHTML("beforeend", `<span>${esc(v)}</span>`);
+      vals.appendChild(lab);
+    }
+    fg.appendChild(vals);
   }
-  fg.appendChild(vals);
 }
+renderFilterGroups(FILTER_GROUPS_UTIL, checkedUtil);   // utility is the default view
+
 function programVisible(p) {
-  for (const g of FILTER_GROUPS) {
-    if (!g.valsOf(p).some(v => checked[g.key].has(v))) return false;
+  const isState = isStateProgram(p);
+  const groups = isState ? FILTER_GROUPS_STATE : FILTER_GROUPS_UTIL;
+  const ck = isState ? checkedState : checkedUtil;
+  for (const g of groups) {
+    if (!g.valsOf(p).some(v => ck[g.key].has(v))) return false;
   }
   return true;
 }
@@ -191,8 +238,9 @@ function visibleProgramsFor(fid) {
 const MAXCOUNT = Math.max(1, ...Object.keys(TERR).map(fid => visibleProgramsFor(fid).length));
 const STATE_MAXCOUNT = Math.max(1, ...STATEWIDE_NAMES.map(name => stateProgramIdxFor(name).length));
 function resetFilters() {
-  for (const g of FILTER_GROUPS) checked[g.key] = new Set(g.values);
-  document.querySelectorAll("#filters input").forEach(cb => { cb.checked = true; });
+  const [groups, ck] = groupsAndCheckedFor(mode);
+  for (const g of groups) ck[g.key] = new Set(g.values);
+  renderFilterGroups(groups, ck);
   applyFilters();
 }
 
@@ -284,6 +332,9 @@ function setMode(m) {
   map.setLayoutProperty("iou-fill", "visibility", showUtil);
   map.setLayoutProperty("iou-line", "visibility", showUtil);
   map.setLayoutProperty("state-fill", "visibility", showState);
+
+  const [groups, ck] = groupsAndCheckedFor(m);
+  renderFilterGroups(groups, ck);
 
   release();
   applyFilters();
@@ -424,6 +475,14 @@ function showDetail(sel) {
   document.getElementById("detail").style.display = "block";
 }
 function closeDetail() { document.getElementById("detail").style.display = "none"; }
+
+function toggleLegend() {
+  const el = document.getElementById("legend");
+  const collapsed = el.classList.toggle("collapsed");
+  const btn = document.getElementById("legend-toggle-btn");
+  btn.textContent = collapsed ? "+" : "−";
+  btn.setAttribute("aria-label", collapsed ? "Expand legend" : "Minimize legend");
+}
 
 function release() {
   pinned = null; hover = null;
