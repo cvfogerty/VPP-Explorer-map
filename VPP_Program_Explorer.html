@@ -412,10 +412,12 @@ function renderUtility(sel) {
   // No State line here: the only state info available is the state each
   // program is offered in (or the geojson's filing state), neither of which
   // describes the territory's actual footprint.
+  // ISO/RTO is read off the territory's programs, so a territory with no
+  // programs has nothing to report - drop the line rather than print "n/a".
   const isos = [...new Set(progs.map(x => x.iso).filter(Boolean))];
   box.innerHTML = `
     <div class="nm">${esc(titleCase(p.NAME))}</div>
-    <div class="meta">ISO/RTO: ${esc(isos.length ? isos.join(", ") : "n/a")}</div>
+    ${isos.length ? `<div class="meta">ISO/RTO: ${esc(isos.join(", "))}</div>` : ""}
     ${p.CUSTOMERS ? `<div class="meta">${fmt(p.CUSTOMERS)} customers</div>` : ""}
     ${idxs.length ? `<span class="vpp-badge">${idxs.length} VPP program${idxs.length > 1 ? "s" : ""}</span>`
                   : `<div class="meta" style="margin-top:4px">No VPP programs in dataset</div>`}`;
